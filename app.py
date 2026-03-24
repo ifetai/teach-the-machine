@@ -32,22 +32,26 @@ TESTFALL = (3, 0)
 SHEET_ID = "1EFjFomoYYxq9q2tQW0EenEj3KUDaPvDGn0h2Fo8jKxY"
 
 # ── COMPLEX DATA (für Overfitting-Tab) ──────────────────
-# Nicht-lineares Muster: mittlere Verspätung + kein Rushhour = manchmal pünktlich wegen Aufholen
-np.random.seed(7)
-def make_complex_data(n=60, noise=True):
+# Nicht-lineares Muster:
+# Rushhour: kurze Versp (<2) od. sehr lange (>8.5) → pünktlich; dazwischen → verspätet
+# Kein Rushhour: <3 pünktlich, 5-7 unsicher, sonst verspätet
+np.random.seed(42)
+def make_complex_data(n=70):
     pts = []
     for _ in range(n):
         x1 = np.random.uniform(0, 10)
         x2 = np.random.choice([0, 1])
-        # Nicht-lineare Regel: Verspätung + Rushhour * 2 + sin(x1)*Rushhour > 4
-        signal = x1 * 0.5 + x2 * 1.8 + np.sin(x1) * x2 * 0.8
-        if noise:
-            signal += np.random.normal(0, 0.5)
-        y = 1 if signal > 2.5 else 0
-        pts.append((x1, x2, y))
+        if x2 == 1:
+            y = 0 if (x1 < 2.0 or x1 > 8.5) else 1
+        else:
+            if x1 < 3.0: y = 0
+            elif 5.0 < x1 < 7.0: y = int(np.random.choice([0,1], p=[0.55,0.45]))
+            else: y = 1
+        if np.random.random() < 0.07: y = 1 - y
+        pts.append((round(x1,2), x2, int(y)))
     return pts
 
-COMPLEX_ALL = make_complex_data(80)
+COMPLEX_ALL   = make_complex_data(70)
 COMPLEX_TRAIN = COMPLEX_ALL[:50]
 COMPLEX_TEST  = COMPLEX_ALL[50:]
 
@@ -125,79 +129,83 @@ def make_fitting_plot(complexity, show_test):
     X_te = np.array([(x1,x2) for x1,x2,y in COMPLEX_TEST])
     y_te = np.array([y for x1,x2,y in COMPLEX_TEST])
 
-    # Train model with varying complexity via SVM RBF gamma
-    if complexity == 1:
-        model = Pipeline([('poly', PolynomialFeatures(1)), ('lr', LogisticRegression(C=0.1, max_iter=1000))])
-        label = "Gerade (linear) — zu simpel"
-        color = "#1a3f6f"
-    elif complexity <= 4:
-        model = Pipeline([('poly', PolynomialFeatures(complexity)), ('lr', LogisticRegression(C=1.0, max_iter=1000))])
-        label = f"Polynomgrad {complexity} — gute Balance"
-        color = "#16a34a"
+    if complexity <= 2:
+        from sklearn.pipeline import Pipeline
+        from sklearn.preprocessing import PolynomialFeatures
+        from sklearn.linear_model import LogisticRegression
+        model = Pipeline([('poly', PolynomialFeatures(complexity)),
+                          ('lr', LogisticRegression(C=1.0, max_iter=3000))])
+        clr = "#1a3f6f"
+    elif complexity <= 5:
+        from sklearn.pipeline import Pipeline
+        from sklearn.preprocessing import PolynomialFeatures
+        from sklearn.linear_model import LogisticRegression
+        model = Pipeline([('poly', PolynomialFeatures(complexity)),
+                          ('lr', LogisticRegression(C=1.0, max_iter=3000))])
+        clr = "#16a34a"
     else:
-        gamma_map = {5:1, 6:3, 7:8, 8:20, 9:50, 10:200}
-        g = gamma_map.get(complexity, 200)
-        model = SVC(kernel='rbf', gamma=g, C=100, probability=True)
-        label = f"Sehr komplex (γ={g}) — Overfitting"
-        color = "#EB0000"
+        gamma_map = {6:1, 7:3, 8:10, 9:40, 10:150}
+        g = gamma_map.get(complexity, 150)
+        model = SVC(kernel='rbf', gamma=g, C=100)
+        clr = "#EB0000"
 
     model.fit(X_tr, y_tr)
     train_acc = model.score(X_tr, y_tr)
     test_acc  = model.score(X_te, y_te)
 
-    # Decision boundary mesh
-    xx, yy = np.meshgrid(np.linspace(-0.5,10.5,120), np.linspace(-0.3,1.3,60))
-    Z = model.predict(np.c_[xx.ravel(), yy.ravel()]).reshape(xx.shape)
+    # Decision boundary as contour LINE only (no fill)
+    xx, yy = np.meshgrid(np.linspace(-0.3, 10.3, 200), np.linspace(-0.15, 1.15, 100))
+    Z = model.predict(np.c_[xx.ravel(), yy.ravel()]).reshape(xx.shape).astype(float)
 
     fig = go.Figure()
 
-    # Background regions
+    # Boundary line only
     fig.add_trace(go.Contour(
-        x=np.linspace(-0.5,10.5,120), y=np.linspace(-0.3,1.3,60), z=Z,
-        showscale=False, colorscale=[[0,'rgba(26,63,111,0.08)'],[1,'rgba(235,0,0,0.08)']],
-        contours=dict(coloring='fill', showlines=False), hoverinfo='skip'
-    ))
-
-    # Boundary line
-    fig.add_trace(go.Contour(
-        x=np.linspace(-0.5,10.5,120), y=np.linspace(-0.3,1.3,60), z=Z,
-        showscale=False, colorscale=[[0,color],[1,color]],
-        contours=dict(coloring='lines', showlines=True, start=0.5, end=0.5, size=0),
-        line=dict(width=2.5, dash='dash'), hoverinfo='skip',
-        name='Entscheidungsgrenze'
+        x=np.linspace(-0.3,10.3,200), y=np.linspace(-0.15,1.15,100), z=Z,
+        showscale=False,
+        contours=dict(coloring='none', showlines=True,
+                      start=0.5, end=0.5, size=1),
+        line=dict(width=3, color=clr),
+        hoverinfo='skip', name='Entscheidungsgrenze'
     ))
 
     # Training points
-    for lbl,clr,sym,nm in [(0,'#1a1a2e','circle','Pünktlich (Training)'),(1,'#EB0000','square','Verspätung (Training)')]:
+    for lbl,clr2,sym,nm in [
+        (0,'#1a3f6f','circle','Pünktlich (Training)'),
+        (1,'#EB0000','square','Verspätung (Training)')]:
         pts = [(x1,x2) for x1,x2,y in COMPLEX_TRAIN if y==lbl]
         if pts:
             fig.add_trace(go.Scatter(
                 x=[p[0] for p in pts], y=[p[1] for p in pts],
                 mode='markers', name=nm,
-                marker=dict(size=10,color=clr,symbol=sym,line=dict(width=1.5,color='white'))
+                marker=dict(size=10, color=clr2, symbol=sym,
+                           line=dict(width=1.5, color='white'))
             ))
 
-    # Test points
+    # Test points (open symbols)
     if show_test:
-        for lbl,clr,sym,nm in [(0,'#93c5fd','circle-open','Pünktlich (Test)'),(1,'#fca5a5','square-open','Verspätung (Test)')]:
+        for lbl,clr2,sym,nm in [
+            (0,'#3b82f6','circle-open','Pünktlich (Test)'),
+            (1,'#ef4444','square-open','Verspätung (Test)')]:
             pts = [(x1,x2) for x1,x2,y in COMPLEX_TEST if y==lbl]
             if pts:
                 fig.add_trace(go.Scatter(
                     x=[p[0] for p in pts], y=[p[1] for p in pts],
                     mode='markers', name=nm,
-                    marker=dict(size=10,color=clr,symbol=sym,line=dict(width=2,color=clr))
+                    marker=dict(size=12, color=clr2, symbol=sym,
+                               line=dict(width=2.5, color=clr2))
                 ))
 
     fig.update_layout(
         xaxis_title='Verspätung Vorstation (Min.)',
         yaxis_title='Rushhour',
-        xaxis=dict(range=[-0.5,10.5],gridcolor='#f0f0f0'),
-        yaxis=dict(range=[-0.3,1.3],tickvals=[0,1],ticktext=['Nein','Ja'],gridcolor='#f0f0f0'),
+        xaxis=dict(range=[-0.3,10.3], gridcolor='#f0f0f0'),
+        yaxis=dict(range=[-0.25,1.25], tickvals=[0,1],
+                   ticktext=['Nein (0)','Ja (1)'], gridcolor='#f0f0f0'),
         plot_bgcolor='white', paper_bgcolor='white',
-        legend=dict(orientation='h',yanchor='bottom',y=1.02,font=dict(size=11)),
-        margin=dict(l=50,r=20,t=40,b=50), height=420,
-        font=dict(size=12),
-        title=dict(text=label, font=dict(color=color, size=14))
+        legend=dict(orientation='h', yanchor='bottom', y=1.02, font=dict(size=11)),
+        margin=dict(l=50,r=20,t=20,b=50), height=400,
+        font=dict(size=12)
     )
     return fig, train_acc, test_acc
 
