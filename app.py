@@ -5,7 +5,7 @@ import plotly.graph_objects as go
 import numpy as np
 
 st.set_page_config(
-    page_title="Teach the Machine",
+    page_title="Teach the Machine - SBB",
     page_icon="🚂",
     layout="wide",
     initial_sidebar_state="expanded"
