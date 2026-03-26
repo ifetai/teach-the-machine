@@ -168,7 +168,7 @@ with tab1:
                     c1, c2, c3 = st.columns([3, 1, 1])
                     with c1:
                         st.markdown(f"**{medal} {e.get('Name','—')}**")
-                        st.caption(f"w1={e.get('w1')} · w2={e.get('w2')} · bias={e.get('bias')}")
+                        st.caption(f"{int(e.get('Accuracy',0)/8*100)}% korrekt")
                     with c2:
                         st.metric("", f"{a}/8", label_visibility="collapsed")
                     with c3:
